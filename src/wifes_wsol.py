@@ -1,21 +1,21 @@
-import re
-from astropy.io import fits as pyfits
-import numpy
-import pylab
-import pickle
-import scipy.interpolate
-import scipy.optimize
-from wifes_metadata import metadata_dir
-import mpfit
-import optical_model as om
 import math
-import mpfit
 import multiprocessing
-from itertools import cycle
-from wifes_metadata import __version__
-
 # Fred's upadate (wsol)
 import os
+import pickle
+import re
+from itertools import cycle
+
+import numpy
+import pylab
+import scipy.interpolate
+import scipy.optimize
+from astropy.io import fits as pyfits
+
+import mpfit
+import optical_model as om
+from wifes_metadata import __version__
+from wifes_metadata import metadata_dir
 
 #------------------------------------------------------------------------
 f0 = open(os.path.join(metadata_dir,'basic_wifes_metadata.pkl'), 'r')
@@ -157,6 +157,7 @@ def mpfit_gauss_line( (nline, guess_center, width_guess, xfit, yfit) ):
                 'limited':[1,1], 'limits':[width_guess/20.,width_guess]},
                ]
 
+    import pdb; pdb.set_trace()
     my_fit = mpfit.mpfit(err_gauss_line,functkw=fa, parinfo=parinfo, 
                              quiet=True)
     p1 = my_fit.params
@@ -1234,228 +1235,232 @@ def derive_wifes_skyline_solution(inimg, out_file,
 FTOL = 1e-3
 
 def excludeLines(lines, exclude, index=3, epsilon=0.05):
-  """ Work out if any of the lines we read in are to be excluded
-      We do this by constructing a matrix of differences between the input lines
-      and the exclude lines, then determining whether any are close enough to
-      count as a match.  We then exclude those. """
-  if ((not exclude is None) and len(exclude) > 0):
-    print 'Excluding', exclude, 'with tolerance of', epsilon
-    exclude = numpy.asarray(exclude)
-    nlines = lines.shape[0]
-    nexclude = exclude.shape[0]
-    keeplines = (numpy.abs(numpy.repeat(lines[:,index], nexclude).reshape(nlines,nexclude) - numpy.tile(exclude, (nlines,1))) > epsilon).all(axis=1)
-    return lines[keeplines]
-  else:
-    return lines
+    """ Work out if any of the lines we read in are to be excluded
+    We do this by constructing a matrix of differences between the input lines
+    and the exclude lines, then determining whether any are close enough to
+    count as a match.  We then exclude those. """
+    if ((not exclude is None) and len(exclude) > 0):
+        print 'Excluding', exclude, 'with tolerance of', epsilon
+        exclude = numpy.asarray(exclude)
+        nlines = lines.shape[0]
+        nexclude = exclude.shape[0]
+        keeplines = (numpy.abs(numpy.repeat(lines[:,index], nexclude).reshape(nlines,nexclude) - numpy.tile(exclude, (nlines,1))) > epsilon).all(axis=1)
+        return lines[keeplines]
+    else:
+        return lines
 
-def _fit_optical_model(title, grating, bin_x, bin_y, lines, alphap, doalphapfit, doplot, automatic, sigma, verbose, decimate, save_prefix=None):
+def _fit_optical_model(title, grating, bin_x, bin_y, lines, alphap,
+                       doalphapfit, doplot, automatic, sigma, verbose,
+                       decimate, save_prefix=None):
 
-  # Don't do the alphap fit initially
-  doalphapfit_thistime = False
+    # Don't do the alphap fit initially
+    doalphapfit_thistime = False
 
-  # Set up the initial set of parameters
-  plorig = om.defaultParams(grating)
+    # Set up the initial set of parameters
+    plorig = om.defaultParams(grating)
 
-  # Extract individual arrays from the main array
-  alls, ally, allx, allarcs = om.extractArrays(lines, grating, bin_x, bin_y)
-
-  lambda0 = plorig[13]
-  print 'lambda0=',lambda0
-
-  # Get sensible values for xdc and ydc
-  # by looking at the central slitlet
-  args = (alls == 13)
-  tmparcs = allarcs[args]
-  if (len(tmparcs) > 0):
-    largs = (tmparcs <= lambda0)
-    rargs = (tmparcs >= lambda0)
-    if (numpy.any(tmparcs[largs]) and numpy.any(tmparcs[rargs])):
-      left = numpy.argmax(tmparcs[largs])
-      right = numpy.argmin(tmparcs[rargs])
-      plorig[11] = (allx[args][largs][left]+allx[args][rargs][right])/2
-      print 'xdc=',plorig[11]
-
-    plorig[12] = (ally[args].max() + ally[args].min()) / 2.
-    print 'ydc=',plorig[12]
-
-  # Initial residuals
-  resid = om.errfunc(grating, plorig, alphap, alls, ally, allx, allarcs)
-
-  # Do an initial plot of the residuals if required
-  if doplot:
-    om.plotFunc(title,allx,ally,allarcs,om.fitfunc(grating,plorig,alphap,alls,ally,allx))
-    om.plotResid(title,allx,ally,allarcs,resid)
-
-  # The initial RMSE before fitting
-  var = numpy.sum(resid**2) / len(allx)
-  bias = numpy.sum(resid) / len(allx)
-  rmse = math.sqrt(var + bias**2)
-  print "Initial RMSE",rmse
-
-  # Set up parameter info ready for fitting
-  parinfo = [{'value':0., 'fixed':1, 'limited':[0,0], 'limits':[0.,0.]} for i in range(om.nparams + len(alphap))]
-
-  # Set the parameter values
-  for i,v in enumerate(numpy.concatenate((plorig,alphap))):
-    parinfo[i]['value']=v
-
-  # Limit the input alpha angle
-  parinfo[1]['limited']=[1,1]
-  parinfo[1]['limits']=[0, math.pi/4]
-
-  # Limit phi
-  parinfo[2]['limited']=[1,1]
-  parinfo[2]['limits']=[-math.pi/2,math.pi/2]
-
-  # The sets of parameters to fit in each iteration
-  if (grating[1:] == '3000'):
-    paramlist = [(0,13),(1,),(2,3,4,5,6,7,8,9,10,11,12,14,15,16,17)]
-  else:
-    paramlist = [(1,),(2,3,4,5,6,7,8,9,10,11,12,16,17)]
-
-  # Work with decimated data first, if asked to
-  if (decimate):
-    if (verbose):
-      print 'Working with decimated data'
-    origLines = lines
-    lines = lines[::10]
-
-  finished = False
-  while (not finished):
-
-    # Check if this is to be the last run through
-    if automatic <= 0:
-      # Not automatic or interactive, so we're done
-      finished = True
-      if (doalphapfit and not doalphapfit_thistime):
-	# Unless we want an alphapfit
-	doalphapfit_thistime = True
-	paramlist.append(tuple(range(om.nparams,om.nparams+len(alphap)),))
-
-    # Report on how many points are in the data set
-    if (verbose):
-      print "Working with",len(lines),"data points"
-
-    # Check that we actually have a sensible number of lines
-    if (len(lines) < 100):
-      return (None, None, None, None, None)
-
-    # Extract the columns we need
+    # Extract individual arrays from the main array
     alls, ally, allx, allarcs = om.extractArrays(lines, grating, bin_x, bin_y)
 
-    # FIXME what is the real error?
-    err = numpy.ones_like(ally)
-    fa = {'s':alls, 'y':ally, 'x':allx, 'grating':grating, 'arc':allarcs, 'err':err}
+    lambda0 = plorig[13]
+    print 'lambda0=',lambda0
 
-    for params in paramlist:
-      for r in range(1):
-	if (verbose):
-	  print 'Fitting for parameters',params
-	# Fix all parameters
-	for p in parinfo:
-	  p['fixed'] = 1
-	# Unfix only those we want to fit this time around
-	for i in params:
-	  parinfo[i]['fixed'] = 0
-	# Do the fit
-	fitdone = False
-	fitcount = 0
-	# Maximum number of times to repeat the fit
-	MAXFITS = 1
-	while (not fitdone):
-	  fitcount += 1
-	  # Actually do the fit
-	  m = mpfit.mpfit(om.mpfitfunc, functkw=fa, parinfo=parinfo, iterfunct=None, ftol=FTOL)
-	  # Report on it
-	  if (verbose):
-	    print 'status = ', m.status
-	  if (m.status <= 0):
-	     print 'error message = ', m.errmsg
+    # Get sensible values for xdc and ydc
+    # by looking at the central slitlet
+    args = (alls == 13)
+    tmparcs = allarcs[args]
+    if (len(tmparcs) > 0):
+        largs = (tmparcs <= lambda0)
+        rargs = (tmparcs >= lambda0)
+        if (numpy.any(tmparcs[largs]) and numpy.any(tmparcs[rargs])):
+            left = numpy.argmax(tmparcs[largs])
+            right = numpy.argmin(tmparcs[rargs])
+            plorig[11] = (allx[args][largs][left]+allx[args][rargs][right])/2
+            print 'xdc=',plorig[11]
 
-          if (verbose):
-	    # Work out the RMSE
-	    chisq = m.fnorm
-	    dof=len(allx)-len(m.params)
-	    rmse=numpy.sqrt(chisq/dof)
-	    print "RMSE",rmse
+        plorig[12] = (ally[args].max() + ally[args].min()) / 2.
+        print 'ydc=',plorig[12]
 
-	  # Copy back fitted parameters into parinfo structure
-	  for i,v in enumerate(m.params):
-	    parinfo[i]['value'] = v
-	    # Report the ones we just changed
-	    if (parinfo[i]['fixed'] == 0) and verbose:
-	      print i, parinfo[i]['value']
+    # Initial residuals
+    resid = om.errfunc(grating, plorig, alphap, alls, ally, allx, allarcs)
 
-	  # Repeat the fit if we need more steps
-	  if ((m.status == 5) and (fitcount < MAXFITS)):
-	    print 'mpfit needs more steps; repeating fit'
-	  else:
-	    fitdone = True
+  # Do an initial plot of the residuals if required
+    if doplot:
+        om.plotFunc(title,allx,ally,allarcs,om.fitfunc(grating,plorig,alphap,alls,ally,allx))
+        om.plotResid(title,allx,ally,allarcs,resid)
 
-	if doplot:
-	  pl = numpy.asarray(m.params)[:om.nparams]
-	  resid = om.errfunc(grating, pl, alphap, alls, ally, allx, allarcs)
-	  om.plotResid(title,allx,ally,allarcs,resid)
-	  #om.plotFunc(title,allx,ally,allarcs,om.fitfunc(grating, pl,alphap,alls,ally,allx))
-
-    # Extract the fitted parameters
-    pl = numpy.asarray(m.params)
-    if (verbose):
-      print 'Fit complete'
-      om.printParams(grating, pl[:om.nparams], pl[om.nparams:])
-
-    # Generate the final residuals
-    resid = om.errfunc(grating, pl[:om.nparams],pl[om.nparams:],alls,ally,allx,allarcs)
-
-    # Calculate how good the fit was
+    # The initial RMSE before fitting
     var = numpy.sum(resid**2) / len(allx)
     bias = numpy.sum(resid) / len(allx)
     rmse = math.sqrt(var + bias**2)
+    print "Initial RMSE",rmse
 
-    if (verbose):
-      print "VAR",var
-      print "BIAS",bias
-      print "RMSE",rmse
+    # Set up parameter info ready for fitting
+    parinfo = [{'value':0., 'fixed':1, 'limited':[0,0], 'limits':[0.,0.]} for i in range(om.nparams + len(alphap))]
 
-    # If we were working with decimated data, we now go back to using
-    # the full data set for the next run.
-    if (decimate):
-      if (verbose):
-	print 'Working with full data set'
-      lines = origLines
-      decimate = False
-      alls, ally, allx, allarcs = om.extractArrays(lines, grating, bin_x, bin_y)
-      resid = om.errfunc(grating, pl[:om.nparams],pl[om.nparams:],alls,ally,allx,allarcs)
-      if (doplot):
-	om.plotResid(title,allx,ally,allarcs,resid)
+    # Set the parameter values
+    for i,v in enumerate(numpy.concatenate((plorig,alphap))):
+        parinfo[i]['value']=v
 
-    # In automatic mode we select some of the lines to be removed
-    if automatic > 0:
-      lines = om.excludeAuto(lines, grating, bin_x, bin_y, resid, sigma, doplot, verbose)
-      alls, ally, allx, allarcs = om.extractArrays(lines, grating, bin_x, bin_y)
-      err = numpy.ones_like(ally)
-      fa = {'s':alls, 'y':ally, 'x':allx, 'arc':allarcs, 'err':err}
-      automatic -= 1
+    # Limit the input alpha angle
+    parinfo[1]['limited']=[1,1]
+    parinfo[1]['limits']=[0, math.pi/4]
 
-    elif doplot:
-      # Do a plot of the residuals if required
-      if save_prefix != None:
-          save_fn = save_prefix+'final_resids.png'
-      else:
-          save_fn = None
-      om.plotResid(title,allx,ally,allarcs,resid, save_fn=save_fn)
+    # Limit phi
+    parinfo[2]['limited']=[1,1]
+    parinfo[2]['limits']=[-math.pi/2,math.pi/2]
 
-  # Do a final plot of the data if required
-  if doplot:
-    alls, ally, allx, allarcs = om.extractArrays(lines, grating, bin_x, bin_y)
-    if save_prefix != None:
-        save_fn = save_prefix+'final_wsol.png'
+    # The sets of parameters to fit in each iteration
+    if (grating[1:] == '3000'):
+        paramlist = [(0,13),(1,),(2,3,4,5,6,7,8,9,10,11,12,14,15,16,17)]
     else:
-        save_fn = None
-    om.plotLines(title,allx,ally, save_fn=save_fn)
+        paramlist = [(1,),(2,3,4,5,6,7,8,9,10,11,12,16,17)]
 
-  print "Final RMSE",rmse
-  return (allx, ally, alls, allarcs, pl)
+    # Work with decimated data first, if asked to
+    if (decimate):
+        if (verbose):
+            print 'Working with decimated data'
+        origLines = lines
+        lines = lines[::10]
+
+    finished = False
+    while (not finished):
+
+        # Check if this is to be the last run through
+        if automatic <= 0:
+            # Not automatic or interactive, so we're done
+            finished = True
+            if (doalphapfit and not doalphapfit_thistime):
+                # Unless we want an alphapfit
+                doalphapfit_thistime = True
+                paramlist.append(tuple(range(
+                    om.nparams,om.nparams+len(alphap)),))
+
+        # Report on how many points are in the data set
+        if (verbose):
+            print "Working with",len(lines),"data points"
+
+        # Check that we actually have a sensible number of lines
+        if (len(lines) < 100):
+            return (None, None, None, None, None)
+
+        # Extract the columns we need
+        alls, ally, allx, allarcs = om.extractArrays(lines, grating, bin_x, bin_y)
+
+        # FIXME what is the real error?
+        err = numpy.ones_like(ally)
+        fa = {'s':alls, 'y':ally, 'x':allx, 'grating':grating, 'arc':allarcs, 'err':err}
+
+        for params in paramlist:
+            for r in range(1):
+                if (verbose):
+                    print 'Fitting for parameters',params
+                # Fix all parameters
+                for p in parinfo:
+                    p['fixed'] = 1
+                # Unfix only those we want to fit this time around
+                for i in params:
+                    parinfo[i]['fixed'] = 0
+                # Do the fit
+                fitdone = False
+                fitcount = 0
+                # Maximum number of times to repeat the fit
+                MAXFITS = 1
+                while (not fitdone):
+                    fitcount += 1
+                    # Actually do the fit
+            m = mpfit.mpfit(om.mpfitfunc, functkw=fa, parinfo=parinfo, iterfunct=None, ftol=FTOL)
+            # Report on it
+            if (verbose):
+                print 'status = ', m.status
+            if (m.status <= 0):
+                print 'error message = ', m.errmsg
+
+            if (verbose):
+                # Work out the RMSE
+                chisq = m.fnorm
+                dof=len(allx)-len(m.params)
+                rmse=numpy.sqrt(chisq/dof)
+                print "RMSE",rmse
+
+                # Copy back fitted parameters into parinfo structure
+            for i,v in enumerate(m.params):
+                parinfo[i]['value'] = v
+                # Report the ones we just changed
+                if (parinfo[i]['fixed'] == 0) and verbose:
+                    print i, parinfo[i]['value']
+
+                # Repeat the fit if we need more steps
+            if ((m.status == 5) and (fitcount < MAXFITS)):
+                print 'mpfit needs more steps; repeating fit'
+            else:
+                fitdone = True
+
+            if doplot:
+                pl = numpy.asarray(m.params)[:om.nparams]
+                resid = om.errfunc(grating, pl, alphap, alls, ally, allx, allarcs)
+                om.plotResid(title,allx,ally,allarcs,resid)
+                #om.plotFunc(title,allx,ally,allarcs,om.fitfunc(grating, pl,alphap,alls,ally,allx))
+
+        # Extract the fitted parameters
+        pl = numpy.asarray(m.params)
+        if (verbose):
+            print 'Fit complete'
+            om.printParams(grating, pl[:om.nparams], pl[om.nparams:])
+
+        # Generate the final residuals
+        resid = om.errfunc(grating, pl[:om.nparams],pl[om.nparams:],alls,ally,allx,allarcs)
+
+        # Calculate how good the fit was
+        var = numpy.sum(resid**2) / len(allx)
+        bias = numpy.sum(resid) / len(allx)
+        rmse = math.sqrt(var + bias**2)
+
+        if (verbose):
+            print "VAR",var
+            print "BIAS",bias
+            print "RMSE",rmse
+
+        # If we were working with decimated data, we now go back to using
+        # the full data set for the next run.
+        if (decimate):
+            if (verbose):
+                print 'Working with full data set'
+            lines = origLines
+            decimate = False
+            alls, ally, allx, allarcs = om.extractArrays(lines, grating, bin_x, bin_y)
+            resid = om.errfunc(grating, pl[:om.nparams],pl[om.nparams:],alls,ally,allx,allarcs)
+            if (doplot):
+                om.plotResid(title,allx,ally,allarcs,resid)
+
+        # In automatic mode we select some of the lines to be removed
+        if automatic > 0:
+            lines = om.excludeAuto(lines, grating, bin_x, bin_y, resid, sigma, doplot, verbose)
+            alls, ally, allx, allarcs = om.extractArrays(lines, grating, bin_x, bin_y)
+            err = numpy.ones_like(ally)
+            fa = {'s':alls, 'y':ally, 'x':allx, 'arc':allarcs, 'err':err}
+            automatic -= 1
+
+        elif doplot:
+        # Do a plot of the residuals if required
+            if save_prefix != None:
+                save_fn = save_prefix+'final_resids.png'
+            else:
+                save_fn = None
+            om.plotResid(title,allx,ally,allarcs,resid, save_fn=save_fn)
+
+    # Do a final plot of the data if required
+    if doplot:
+        alls, ally, allx, allarcs = om.extractArrays(lines, grating, bin_x, bin_y)
+        if save_prefix != None:
+            save_fn = save_prefix+'final_wsol.png'
+        else:
+            save_fn = None
+        om.plotLines(title,allx,ally, save_fn=save_fn)
+
+    print "Final RMSE",rmse
+    return (allx, ally, alls, allarcs, pl)
+
 
 def derive_wifes_optical_wave_solution(inimg,
                                        outfn,
@@ -1482,166 +1487,168 @@ def derive_wifes_optical_wave_solution(inimg,
                                        savefigs=False,
                                        save_prefix='wsol_',
                                        multithread=True):
-  """ The main user-callable function that performs the fit"""
-  #------------------------------------------------------
-  # *** Mike's edits: operate on PyWiFeS MEF files ***
-  #------------------------------------------------------
-  # step 1 - gather metadata from header
-  f = pyfits.open(inimg)
-  camera = f[1].header['CAMERA']
-  if camera == 'WiFeSRed':
-      grating = f[1].header['GRATINGR']
-  else:
-      grating = f[1].header['GRATINGB']
-  ccdsum = f[1].header['CCDSUM']
-  bin_x = int(float(ccdsum.split()[0]))
-  bin_y = int(float(ccdsum.split()[1]))
+    """ The main user-callable function that performs the fit"""
+    #------------------------------------------------------
+    # *** Mike's edits: operate on PyWiFeS MEF files ***
+    #------------------------------------------------------
+    # step 1 - gather metadata from header
+    f = pyfits.open(inimg)
+    camera = f[1].header['CAMERA']
+    if camera == 'WiFeSRed':
+        grating = f[1].header['GRATINGR']
+    else:
+        grating = f[1].header['GRATINGB']
+    ccdsum = f[1].header['CCDSUM']
+    bin_x = int(float(ccdsum.split()[0]))
+    bin_y = int(float(ccdsum.split()[1]))
 
-  # Get some optional meta-data
-  dateobs = f[1].header.get('DATE-OBS')
-  tdk = f[1].header.get('TDK')
-  pmb = f[1].header.get('PMB')
-  rh = f[1].header.get('RH')
-  rma = f[1].header.get('ROTSKYPA') # Dumb name for rotator mechanical angle
-  if arc_name == None:
-      init_arc_name = f[1].header['M1ARCLMP']
-      next_arc_name = re.sub('-', '', init_arc_name)
-      again_arc_name = re.sub(' ', '', next_arc_name)
-      arc_name = re.sub('_', '', again_arc_name)
-  # set the arc linelist!
-  if ref_arcline_file != None:
-      f1 = open(ref_arcline_file, 'r')
-      ref_arclines = numpy.array([float(line.split()[0])
-                                  for line in f1.readlines()])
-      f1.close()
-  # step 2 - find lines!
-  found_x_lists = []
-  found_y_lists = []
-  found_s_lists = []
-  found_r_lists = []
-  yrange = []
-  for i in range(1,26):
-      # and the yrange...
-      ccdsec = f[i].header['CCDSEC']
-      y0 = int(ccdsec.split(',')[1].split(':')[0])
-      y1 = int(ccdsec.split(',')[1].split(':')[1].split(']')[0])
-      # Make the values work nicely with the range() command
-      if (y0 > y1):
-          ystop = y0 + 1
-          ystart = y1
-      else:
-          ystop = y1 + 1
-          ystart = y0
-      # Plot them or not ?
-      if doplot == True or ((doplot != False) and ('step1' in doplot)):
-          step1plot = True
-      else:
-          step1plot = False
-      if doplot == True or (doplot != False) and (('step2' in doplot)):
-          step2plot = True
-      else:
-          step2plot = False    
-          
-      # guess the reference wavelengths
-      new_x, new_y, new_r = find_lines_and_guess_refs(
-          f[i].data,
-          i,
-          grating,
-          arc_name,
-          find_method=find_method,
-          shift_method=shift_method,
-          ref_arclines=ref_arclines,
-          dlam_cut_start=dlam_cut_start,
-          bin_x=bin_x, bin_y=bin_y,
-          yzp=ystart,
-          verbose=verbose,
-          flux_threshold_nsig=flux_threshold_nsig,
-          deriv_threshold_nsig=1.0,
-          multithread=multithread,
-          plot=step1plot)
-      nl = len(new_x)
-      found_x_lists.append(new_x)
-      found_r_lists.append(new_r)
-      found_s_lists.append(i*numpy.ones(nl))
-      yrange.append((ystart,ystop))
-      found_y_lists.append(new_y+ystart)
-  f.close()
-  all_x = numpy.concatenate(found_x_lists)
-  all_y = numpy.concatenate(found_y_lists)
-  all_s = numpy.concatenate(found_s_lists)
-  all_r = numpy.concatenate(found_r_lists)
-  if verbose:
-      print 'Line finding complete'
-  # NEED TO (FOR NOW) HAVE COMPLIANCE WITH NIELSEN 'LINES' TEMPLATE
-  lines = numpy.column_stack((all_s, all_y, all_x, all_r))
-  grating = grating.lower()
-  alls, ally, allx, allarcs = om.extractArrays(lines, grating, bin_x, bin_y)
-  #------------------------------------------------------
-  # NOTE: THIS CODE BELOW IS DEPRECATED
-  #------------------------------------------------------
-  # Read in file containing yrange and all line data
-  #try:
-  #  with open(idfile, "r") as f:
-  #    (grating, (bin_x, bin_y), yrange, lines) = pickle.load(f)
-  #except IOError:
-  #  print "Warning:", idfile, "could not be opened"
-  #  return
-  #
-  #grating = grating.lower()
-  #
-  ## Extract the separate arrays from the line data
-  #alls, ally, allx, allarcs = om.extractArrays(lines, grating, bin_x, bin_y)
-  #
-  #------------------------------------------------------
-  # Read in lines to exclude
-  if exclude_from is None:
-    exclude = numpy.empty(0)
-  else:
-    exclude = numpy.loadtxt(exclude_from)
+            # Get some optional meta-data
+    dateobs = f[1].header.get('DATE-OBS')
+    tdk = f[1].header.get('TDK')
+    pmb = f[1].header.get('PMB')
+    rh = f[1].header.get('RH')
+    rma = f[1].header.get('ROTSKYPA') # Dumb name for rotator mechanical angle
+    if arc_name == None:
+        init_arc_name = f[1].header['M1ARCLMP']
+        next_arc_name = re.sub('-', '', init_arc_name)
+        again_arc_name = re.sub(' ', '', next_arc_name)
+        arc_name = re.sub('_', '', again_arc_name)
+    # set the arc linelist!
+    if ref_arcline_file != None:
+        f1 = open(ref_arcline_file, 'r')
+        ref_arclines = numpy.array([float(line.split()[0])
+                                    for line in f1.readlines()])
+        f1.close()
 
-  # Add explicitly specified lines
-  if (not exclude is None):
-    exclude = numpy.append(exclude, exclude)
+    # step 2 - find lines!
+    found_x_lists = []
+    found_y_lists = []
+    found_s_lists = []
+    found_r_lists = []
+    yrange = []
+    for i in range(1,26):
+        # and the yrange...
+        ccdsec = f[i].header['CCDSEC']
+        y0 = int(ccdsec.split(',')[1].split(':')[0])
+        y1 = int(ccdsec.split(',')[1].split(':')[1].split(']')[0])
+        # Make the values work nicely with the range() command
+        if (y0 > y1):
+            ystop = y0 + 1
+            ystart = y1
+        else:
+            ystop = y1 + 1
+            ystart = y0
+        # Plot them or not ?
+        if doplot == True or ((doplot != False) and ('step1' in doplot)):
+            step1plot = True
+        else:
+            step1plot = False
+        if doplot == True or (doplot != False) and (('step2' in doplot)):
+            step2plot = True
+        else:
+            step2plot = False
 
-  # Exclude the lines from the data set
-  lines = excludeLines(lines, exclude, index=3, epsilon=epsilon)
+            # guess the reference wavelengths
+        new_x, new_y, new_r = find_lines_and_guess_refs(
+            f[i].data,
+            i,
+            grating,
+            arc_name,
+            find_method=find_method,
+            shift_method=shift_method,
+            ref_arclines=ref_arclines,
+            dlam_cut_start=dlam_cut_start,
+            bin_x=bin_x, bin_y=bin_y,
+            yzp=ystart,
+            verbose=verbose,
+            flux_threshold_nsig=flux_threshold_nsig,
+            deriv_threshold_nsig=1.0,
+            multithread=multithread,
+            plot=step1plot)
+        nl = len(new_x)
+        found_x_lists.append(new_x)
+        found_r_lists.append(new_r)
+        found_s_lists.append(i*numpy.ones(nl))
+        yrange.append((ystart,ystop))
+        found_y_lists.append(new_y+ystart)
+    f.close()
+    all_x = numpy.concatenate(found_x_lists)
+    all_y = numpy.concatenate(found_y_lists)
+    all_s = numpy.concatenate(found_s_lists)
+    all_r = numpy.concatenate(found_r_lists)
+    if verbose:
+        print 'Line finding complete'
+    # NEED TO (FOR NOW) HAVE COMPLIANCE WITH NIELSEN 'LINES' TEMPLATE
+    lines = numpy.column_stack((all_s, all_y, all_x, all_r))
+    grating = grating.lower()
+    alls, ally, allx, allarcs = om.extractArrays(lines, grating, bin_x, bin_y)
+    #------------------------------------------------------
+    # NOTE: THIS CODE BELOW IS DEPRECATED
+    #------------------------------------------------------
+    # Read in file containing yrange and all line data
+    #try:
+    #  with open(idfile, "r") as f:
+    #    (grating, (bin_x, bin_y), yrange, lines) = pickle.load(f)
+    #except IOError:
+    #  print "Warning:", idfile, "could not be opened"
+    #  return
+    #
+    #grating = grating.lower()
+    #
+    ## Extract the separate arrays from the line data
+    #alls, ally, allx, allarcs = om.extractArrays(lines, grating, bin_x, bin_y)
+    #
+    #------------------------------------------------------
+    # Read in lines to exclude
+    if exclude_from is None:
+        exclude = numpy.empty(0)
+    else:
+        exclude = numpy.loadtxt(exclude_from)
 
-  # Set parameters
-  alphap = None
+    # Add explicitly specified lines
+    if (not exclude is None):
+        exclude = numpy.append(exclude, exclude)
 
-  # Read in alphap
-  if (not alphapfile is None):
-    try:
-      alphap = numpy.loadtxt(alphapfile)
-      print 'Using alphap',alphap
-    except IOError:
-      pass
+    # Exclude the lines from the data set
+    lines = excludeLines(lines, exclude, index=3, epsilon=epsilon)
 
-  if alphap is None:
+    # Set parameters
+    alphap = None
+
+    # Read in alphap
+    if (not alphapfile is None):
+        try:
+            alphap = numpy.loadtxt(alphapfile)
+            print 'Using alphap',alphap
+        except IOError:
+            pass
+
+    if alphap is None:
+        if (verbose):
+            print 'Using default alphap (all zero)'
+        alphap = numpy.zeros(25)
+
     if (verbose):
-      print 'Using default alphap (all zero)'
-    alphap = numpy.zeros(25)
+        print 'Grating',grating
 
-  if (verbose):
-    print 'Grating',grating
+    title = inimg.split('/')[-1][:-5] + ' - '+grating
 
-  title = inimg.split('/')[-1][:-5] + ' - '+grating
+    if savefigs:
+        final_save_prefix = save_prefix
+    else:
+        final_save_prefix = None
+    allx, ally, alls, allarcs, params = _fit_optical_model(title, grating, bin_x, bin_y, lines, alphap, doalphapfit, step2plot, automatic, sigma, verbose, decimate, final_save_prefix)
 
-  if savefigs:
-      final_save_prefix = save_prefix
-  else:
-      final_save_prefix = None
-  allx, ally, alls, allarcs, params = _fit_optical_model(title, grating, bin_x, bin_y, lines, alphap, doalphapfit, step2plot, automatic, sigma, verbose, decimate, final_save_prefix)
+    if not (params is None):
+        # Dump some output
+        newlines = numpy.column_stack((alls,ally,allx,allarcs,om.fitfunc(grating, params[:om.nparams],params[om.nparams:],alls,ally,allx)))
+        om.saveData(outfn+"_extra.pkl", grating, params, newlines, (dateobs, tdk, pmb, rh, rma))
 
-  if not (params is None):
-    # Dump some output
-    newlines = numpy.column_stack((alls,ally,allx,allarcs,om.fitfunc(grating, params[:om.nparams],params[om.nparams:],alls,ally,allx)))
-    om.saveData(outfn+"_extra.pkl", grating, params, newlines, (dateobs, tdk, pmb, rh, rma))
+        # And the resampling data
+        om.saveResamplingData(outfn, yrange, grating, bin_x, bin_y, params)
 
-    # And the resampling data
-    om.saveResamplingData(outfn, yrange, grating, bin_x, bin_y, params)
+    return
 
-  return
 
 #------------------------------------------------------------------------
 def derive_wifes_wave_solution(inimg,
