@@ -1369,38 +1369,39 @@ def _fit_optical_model(title, grating, bin_x, bin_y, lines, alphap,
                 while (not fitdone):
                     fitcount += 1
                     # Actually do the fit
-            m = mpfit.mpfit(om.mpfitfunc, functkw=fa, parinfo=parinfo, iterfunct=None, ftol=FTOL)
-            # Report on it
-            if (verbose):
-                print 'status = ', m.status
-            if (m.status <= 0):
-                print 'error message = ', m.errmsg
+                    m = mpfit.mpfit(om.mpfitfunc, functkw=fa, parinfo=parinfo,
+                                    iterfunct=None, ftol=FTOL)
+                    # Report on it
+                    if (verbose):
+                        print 'status = ', m.status
+                    if (m.status <= 0):
+                        print 'error message = ', m.errmsg
 
-            if (verbose):
-                # Work out the RMSE
-                chisq = m.fnorm
-                dof=len(allx)-len(m.params)
-                rmse=numpy.sqrt(chisq/dof)
-                print "RMSE",rmse
+                    if (verbose):
+                        # Work out the RMSE
+                        chisq = m.fnorm
+                        dof=len(allx)-len(m.params)
+                        rmse=numpy.sqrt(chisq/dof)
+                        print "RMSE",rmse
 
-                # Copy back fitted parameters into parinfo structure
-            for i,v in enumerate(m.params):
-                parinfo[i]['value'] = v
-                # Report the ones we just changed
-                if (parinfo[i]['fixed'] == 0) and verbose:
-                    print i, parinfo[i]['value']
+                        # Copy back fitted parameters into parinfo structure
+                    for i,v in enumerate(m.params):
+                        parinfo[i]['value'] = v
+                        # Report the ones we just changed
+                        if (parinfo[i]['fixed'] == 0) and verbose:
+                            print i, parinfo[i]['value']
 
-                # Repeat the fit if we need more steps
-            if ((m.status == 5) and (fitcount < MAXFITS)):
-                print 'mpfit needs more steps; repeating fit'
-            else:
-                fitdone = True
+                        # Repeat the fit if we need more steps
+                    if ((m.status == 5) and (fitcount < MAXFITS)):
+                        print 'mpfit needs more steps; repeating fit'
+                    else:
+                        fitdone = True
 
-            if doplot:
-                pl = numpy.asarray(m.params)[:om.nparams]
-                resid = om.errfunc(grating, pl, alphap, alls, ally, allx, allarcs)
-                om.plotResid(title,allx,ally,allarcs,resid)
-                #om.plotFunc(title,allx,ally,allarcs,om.fitfunc(grating, pl,alphap,alls,ally,allx))
+                if doplot:
+                    pl = numpy.asarray(m.params)[:om.nparams]
+                    resid = om.errfunc(grating, pl, alphap, alls, ally, allx, allarcs)
+                    om.plotResid(title,allx,ally,allarcs,resid)
+                    #om.plotFunc(title,allx,ally,allarcs,om.fitfunc(grating, pl,alphap,alls,ally,allx))
 
         # Extract the fitted parameters
         pl = numpy.asarray(m.params)
