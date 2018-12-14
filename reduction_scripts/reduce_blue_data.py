@@ -9,16 +9,6 @@ import gc
 import datetime
 import numpy as np
 
-#------------------------------------------------------------------------
-start_time = datetime.datetime.now()
-#------------------------------------------------------------------------
-
-# get name of metadata file from the prompt
-meta_fn = sys.argv[1]
-f1 = open(meta_fn, 'r')
-obs_metadata = pickle.load(f1)
-f1.close()
-
 # WHERE IS EVERYTHING ?
 # New in 0.7.x: get the project directory from the file location !
 proj_dir = os.path.dirname(__file__)
@@ -469,9 +459,11 @@ def run_wave_soln(metadata, prev_suffix, curr_suffix, **args):
     wsol_in_fn  = '%s%s.p%s.fits' % (out_dir, metadata['arc'][0],
                                      prev_suffix)
     print 'Deriving master wavelength solution from %s' % wsol_in_fn.split('/')[-1]
+    print('ABOUT TO MAKE QUESTIONABLE FUNC CALL IN run_wave_soln')
     pywifes.derive_wifes_wave_solution(wsol_in_fn, wsol_out_fn,
                                        **args)
     # local wave solutions for science or standards
+    print('COMPLETE QUESTIONABLE FUNC CALL')
     sci_obs_list  = get_sci_obs_list(metadata)
     std_obs_list  = get_std_obs_list(metadata)
     for fn in sci_obs_list + std_obs_list:
@@ -876,29 +868,41 @@ def run_save_3dcube(metadata, prev_suffix, curr_suffix, **args):
 
 
 
-#------------------------------------------------------------------------
-#------------------------------------------------------------------------
-# RUN THE PROCESSING STEPS
-prev_suffix = None
-for step in proc_steps:
-    step_name   = step['step']
-    step_run    = step['run']
-    step_suffix = step['suffix']
-    step_args   = step['args']
-    func_name = 'run_'+step_name
-    func = globals()[func_name]
-    if step_run:
-        func(obs_metadata,
-             prev_suffix = prev_suffix,
-             curr_suffix = step_suffix,
-             **step_args)
-    if step_suffix != None:
-        prev_suffix = step_suffix
+if __name__ == '__main__':
 
-#------------------------------------------------------------------------
-#------------------------------------------------------------------------
+    # ------------------------------------------------------------------------
+    start_time = datetime.datetime.now()
+    # ------------------------------------------------------------------------
+
+    # get name of metadata file from the prompt
+    meta_fn = sys.argv[1]
+    f1 = open(meta_fn, 'r')
+    obs_metadata = pickle.load(f1)
+    f1.close()
+
+    #------------------------------------------------------------------------
+    #------------------------------------------------------------------------
+    # RUN THE PROCESSING STEPS
+    prev_suffix = None
+    for step in proc_steps:
+        step_name   = step['step']
+        step_run    = step['run']
+        step_suffix = step['suffix']
+        step_args   = step['args']
+        func_name = 'run_'+step_name
+        func = globals()[func_name]
+        if step_run:
+            func(obs_metadata,
+                 prev_suffix = prev_suffix,
+                 curr_suffix = step_suffix,
+                 **step_args)
+        if step_suffix != None:
+            prev_suffix = step_suffix
+
+    #------------------------------------------------------------------------
+    #------------------------------------------------------------------------
 
 
-#------------------------- Fred's update --------------------------------
-duration = datetime.datetime.now() - start_time
-print 'All done in %.01f seconds.' % duration.total_seconds()
+    #------------------------- Fred's update --------------------------------
+    duration = datetime.datetime.now() - start_time
+    print 'All done in %.01f seconds.' % duration.total_seconds()
