@@ -5,12 +5,15 @@ import os
 import pickle
 import re
 from itertools import cycle
+import warnings
 
 import numpy
 import pylab
 import scipy.interpolate
 import scipy.optimize
 from astropy.io import fits as pyfits
+from astropy.modeling.functional_models import Gaussian1D
+from astropy.modeling.fitting import LevMarLSQFitter
 
 import mpfit
 import optical_model as om
@@ -146,34 +149,53 @@ def err_gauss_line(p,x,y,fjac=None):
 
 def mpfit_gauss_line( (nline, guess_center, width_guess, xfit, yfit) ):
     # choose x,y subregions for this line
-    fa = {'x':xfit, 'y':yfit}
-    parinfo = [{'value':yfit[xfit==guess_center], 'fixed':0, 
+    # fa = {'x':xfit, 'y':yfit}
+    parinfo = [{'value':yfit[xfit==guess_center], 'fixed':0,
                 'limited':[1,0], 'limits':[0.,0.]},
-               {'value':guess_center, 'fixed':0, 
-                'limited':[1,1], 
+               {'value':guess_center, 'fixed':0,
+                'limited':[1,1],
                 'limits':[guess_center-width_guess,
                           guess_center+width_guess]},
-               {'value':width_guess/2., 'fixed':0, 
+               {'value':width_guess/2., 'fixed':0,
                 'limited':[1,1], 'limits':[width_guess/20.,width_guess]},
                ]
 
-    import pdb; pdb.set_trace()
-    my_fit = mpfit.mpfit(err_gauss_line,functkw=fa, parinfo=parinfo, 
-                             quiet=True)
-    p1 = my_fit.params
+    # my_fit = mpfit.mpfit(err_gauss_line,functkw=fa, parinfo=parinfo,
+    #                      quiet=True)
+    # p1 = my_fit.params
     #print p1, my_fit.status
 
+    # Do the fitting using AstroPy
+    # Form the model to fit w/ initial conditions
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')
+        model = Gaussian1D(amplitude=yfit[xfit==guess_center],
+                           mean=guess_center,
+                           stddev=width_guess/2.,
+                           bounds={
+                               'amplitude': (0., numpy.inf),
+                               'mean': (guess_center-width_guess,
+                                        guess_center+width_guess),
+                               'stddev': (width_guess/20., width_guess),
+                           })
+        ml = LevMarLSQFitter()
+        fit_result = ml(model, xfit, yfit)
+        # print('FITTER MESSAGE: {}'.format(ml.fit_info['message']))
+        p1 = [v[0] for k, v in
+              zip(fit_result.param_names, fit_result.param_sets)]
+
+
     # plot for check purposes
-    '''
-    print my_fit.params, my_fit.status
-    import matplotlib.pyplot as plt
-    plt.figure()
-    plt.plot(xfit,yfit,'ko-')
-    plt.plot(xfit, gauss_line(my_fit.params,xfit),'ro-')
-    plt.axvline(my_fit.params[1],c='g')
-    plt.axvline(guess_center,c='b',linestyle='--')
-    plt.show()
-    '''
+
+    # print
+    # import matplotlib.pyplot as plt
+    # plt.figure()
+    # plt.plot(xfit,yfit,'ko-')
+    # plt.plot(xfit, gauss_line(p1, xfit),'ro-')
+    # plt.axvline(p1[1], c='g')
+    # plt.axvline(guess_center,c='b',linestyle='--')
+    # plt.show()
+
     if p1[2] == parinfo[2]['limits'][1]:
         # Hum ... line too wide = problem
         return[nline,float('nan')]
@@ -248,14 +270,19 @@ def weighted_loggauss_arc_fit(subbed_arc_data,
                 fitted_centers[i] = float('nan')
                 continue
             jobs.append( (i,curr_ctr_guess, width_guess, xfit, yfit) )
+
         if len(jobs)>0:
         # Do the threading (see below and http://stackoverflow.com/a/3843313)
             mypool = multiprocessing.Pool(cpu)
             results = mypool.imap_unordered(mpfit_gauss_line,jobs)
             # Close off the pool now that we're done with it
             mypool.close()
-            mypool.join()            
-            # Process the results
+            mypool.join()
+        # FIXME Revert to using multiprocessing after debug
+        # results = []
+        # for job in jobs:
+        #     results.append(mpfit_gauss_line(job))
+        #     # Process the results
             for r in results:
                 try:
                     this_line = r[0]

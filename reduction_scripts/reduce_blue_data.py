@@ -459,11 +459,9 @@ def run_wave_soln(metadata, prev_suffix, curr_suffix, **args):
     wsol_in_fn  = '%s%s.p%s.fits' % (out_dir, metadata['arc'][0],
                                      prev_suffix)
     print 'Deriving master wavelength solution from %s' % wsol_in_fn.split('/')[-1]
-    print('ABOUT TO MAKE QUESTIONABLE FUNC CALL IN run_wave_soln')
     pywifes.derive_wifes_wave_solution(wsol_in_fn, wsol_out_fn,
                                        **args)
     # local wave solutions for science or standards
-    print('COMPLETE QUESTIONABLE FUNC CALL')
     sci_obs_list  = get_sci_obs_list(metadata)
     std_obs_list  = get_std_obs_list(metadata)
     for fn in sci_obs_list + std_obs_list:

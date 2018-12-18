@@ -19,6 +19,9 @@ import matplotlib.pyplot as plt
 # CODE VERSION
 from wifes_metadata import __version__
 
+from astropy.modeling import custom_model
+from astropy.modeling.fitting import LevMarLSQFitter
+
 #------------------------------------------------------------------------
 # NEED TO OPEN / ACCESS WIFES METADATA FILE!!
 f0 = open(os.path.join(metadata_dir,'basic_wifes_metadata.pkl'), 'r')
@@ -1053,6 +1056,7 @@ def subtract_wifes_interslit_bias(inimg, outimg,
 
 #--------------------------- Fred's update ------------------------------
 def wifes_bias_model (p,x,camera) :
+    # pdb.set_trace()
     if camera == 'WiFeSRed' :
         model = p[0]
         model += p[1] * numpy.exp(p[2]/numpy.abs(x-p[3]) )
@@ -1065,6 +1069,27 @@ def wifes_bias_model (p,x,camera) :
         model += p[7] * x
         model += p[8]* numpy.exp(-(p[9]*(x-p[10]))**2)
     return model
+
+
+@custom_model
+def wifes_bias_model_astropy_red(x,
+                                 p0=None, p1=None, p2=None, p3=None,
+                                 p4=None, p5=None, p6=None, p7=None):
+    return wifes_bias_model(
+        [p0[0], p1[0], p2[0], p3[0], p4[0], p5[0], p6[0], p7[0], ],
+        x, 'WifesRed')
+
+
+@custom_model
+def wifes_bias_model_astropy_blue(x,
+                                  p0=None, p1=None, p2=None, p3=None,
+                                  p4=None, p5=None, p6=None, p7=None,
+                                  p8=None, p9=None, p10=None):
+    # pdb.set_trace()
+    return wifes_bias_model(
+        [p0[0], p1[0], p2[0], p3[0], p4[0], p5[0], p6[0], p7[0],
+         p8[0], p9[0], p10[0], ],
+        x, 'WifesBlue')
 
 #--------------------------- Fred's update ------------------------------
 def error_wifes_bias_model (p,x,z,err,camera, fjac=None) :
@@ -1167,7 +1192,7 @@ def generate_wifes_bias_fit(bias_img, outimg, data_hdu=0,
         # Initial conditions differ depending on the camera
 
             if camera == 'WiFeSRed' :
-                p0 = [0.,1., -200.,4100., 1., 20.,-800., 0.0001]
+                p0 = [0., 1., -200., 4100., 1., 20., -800., 0.0001]
                 fa = {'x': linx, 'z':curr_data.mean(axis=0), 
                       'err':curr_data.std(axis=0), 'camera':camera }
                 constraints = [{'limited':[0,0]},
@@ -1179,9 +1204,23 @@ def generate_wifes_bias_fit(bias_img, outimg, data_hdu=0,
                                {'limited':[0,1], 'limits':[0,numpy.min(full_x[0,:])]},
                                {'limited':[0,0]}
                                ]
-
+                # model = wifes_bias_model_astropy_red(
+                #     p0=p0[0],
+                #     p1=p0[1],
+                #     p2=p0[2],
+                #     p3=p0[3],
+                #     p4=p0[4],
+                #     p5=p0[5],
+                #     p6=p0[6],
+                #     p7=p0[7],
+                # )
+                # model.bounds.update({
+                #     'p3': (numpy.max(full_x[0,:]), numpy.inf),
+                #     'p6': (-numpy.inf, numpy.min(full_x[0,:])),
+                # })
             else :
-                p0 = [-3.,5., -500.,4100., 0.0001, 200.,-800., 0.0001, 1, 0.01,4000.]
+                p0 = [-3., 5., -500., 4100., 0.0001, 200., -800., 0.0001,
+                      1, 0.01, 4000.]
                 fa = {'x': linx, 'z':curr_data.mean(axis=0), 
                       'err':curr_data.std(axis=0), 'camera':camera }
                 constraints = [{'limited':[0,0]},
@@ -1196,19 +1235,46 @@ def generate_wifes_bias_fit(bias_img, outimg, data_hdu=0,
                                {'limited':[0,0]},
                                {'limited':[0,0]}
                                ]
+                # pdb.set_trace()
+                # model = wifes_bias_model_astropy_blue(
+                #     p0=p0[0],
+                #     p1=p0[1],
+                #     p2=p0[2],
+                #     p3=p0[3],
+                #     p4=p0[4],
+                #     p5=p0[5],
+                #     p6=p0[6],
+                #     p7=p0[7],
+                #     p8=p0[8],
+                #     p9=p0[9],
+                #     p10=p0[10],
+                # )
+                # pdb.set_trace()
+                # model.bounds.update({
+                #     'p3': (numpy.max(full_x[0, :]), numpy.inf),
+                #     'p6': (-numpy.inf, numpy.min(full_x[0, :])),
+                #     'p8': (0., numpy.inf),
+                # })
 
             print ' Fitting bias frame %s' % bias_img.split('/')[-1]
-            fit_result = mpfit.mpfit(error_wifes_bias_model, p0, functkw = fa, 
-                                     parinfo = constraints, quiet=not verbose) 
+            fit_result = mpfit.mpfit(error_wifes_bias_model, p0, functkw = fa,
+                                     parinfo = constraints, quiet=not verbose)
             p1 = fit_result.params
+            # ml = LevMarLSQFitter()
+            # fit_result = ml(model, linx, curr_data.mean(axis=0),
+            #                 weights=(1./curr_data.std(axis=0)))
+            # p1 = [v[0] for k, v in
+            #       zip(fit_result.param_names, fit_result.param_sets)
+            #       if k[0] == 'p']
             #print p1
             if fit_result.status <= 0 or fit_result.status == 5  :
                 print ' Fit may have failed : mpfit status:',fit_result.status
                 print "I'll plot this one for sanity check..."
                 plot = True
     
-            out_data[reg[0]:reg[1]+1,reg[2]:reg[3]+1] = wifes_bias_model(p1,full_x,
-                                                                         camera)
+            out_data[reg[0]:reg[1]+1,reg[2]:reg[3]+1] = wifes_bias_model(
+                p1, full_x,
+                camera)
         # Plot for test purposes ...
         if plot:
             plt.figure()
