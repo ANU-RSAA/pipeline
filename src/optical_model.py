@@ -13,6 +13,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import math
 from astropy.io import fits as pf
+from astropy.modeling import custom_model
 import functools
 import multiprocessing
 import pickle
@@ -326,11 +327,33 @@ def snell(n1, n2, norm, light):
 
   return a + (nratio*costheta1 - np.sqrt(1 - sintheta12))[:,np.newaxis] * norm
 
-def fitfunc_astropy(x, y, s, ):
+
+def fitfunc_astropy_model(grating):
+    return custom_model(fitfunc_astropy_grating(grating))
+
+
+def fitfunc_astropy_grating(grating):
+    return functools.partial(fitfunc_astropy, grating=grating)
+
+
+def fitfunc_astropy(x, y, s, grating=None, **kwargs):
   """
   Function for fitting optical model using astropy
   :return:
   """
+  # The kwargs represent the fitting parameters, and need to be split apart
+  # into the 'plorig' and 'alphap' parameters, denoted by 'a' and 'p'
+  # respectively
+
+  plorig = [(int(k[1:]), v) for k,v in kwargs.items() if k[0] == 'p']
+  plorig.sort(key=lambda x: x[0])
+  plorig = [_[1] for _ in plorig]
+  alphap = [(int(k[1:]), v) for k,v in kwargs.items() if k[0] == 'a']
+  alphap.sort(key=lambda x: x[0])
+  alphap = [_[1] for _ in alphap]
+  import pdb; pdb.set_trace()
+
+  return fitfunc(grating, plorig, alphap, s, y, x)
 
 
 # The function that produces lambda given the list of parameters in p and alphap, the list of

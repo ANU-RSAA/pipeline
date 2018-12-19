@@ -13,6 +13,7 @@ import scipy.interpolate
 import scipy.optimize
 from astropy.io import fits as pyfits
 from astropy.modeling.functional_models import Gaussian1D
+from astropy.modeling import custom_model
 from astropy.modeling.fitting import LevMarLSQFitter
 
 import mpfit
@@ -1311,10 +1312,11 @@ def _fit_optical_model(title, grating, bin_x, bin_y, lines, alphap,
     # Initial residuals
     resid = om.errfunc(grating, plorig, alphap, alls, ally, allx, allarcs)
 
-  # Do an initial plot of the residuals if required
+    # Do an initial plot of the residuals if required
     if doplot:
-        om.plotFunc(title,allx,ally,allarcs,om.fitfunc(grating,plorig,alphap,alls,ally,allx))
-        om.plotResid(title,allx,ally,allarcs,resid)
+        om.plotFunc(title, allx, ally, allarcs,
+                    om.fitfunc(grating, plorig, alphap, alls, ally, allx))
+        om.plotResid(title, allx, ally, allarcs, resid)
 
     # The initial RMSE before fitting
     var = numpy.sum(resid**2) / len(allx)
@@ -1323,7 +1325,8 @@ def _fit_optical_model(title, grating, bin_x, bin_y, lines, alphap,
     print "Initial RMSE",rmse
 
     # Set up parameter info ready for fitting
-    parinfo = [{'value':0., 'fixed':1, 'limited':[0,0], 'limits':[0.,0.]} for i in range(om.nparams + len(alphap))]
+    parinfo = [{'value': 0., 'fixed': 1, 'limited': [0, 0], 'limits': [0., 0.]}
+               for i in range(om.NPARAMS + len(alphap))]
 
     # Set the parameter values
     for i,v in enumerate(numpy.concatenate((plorig,alphap))):
@@ -1361,7 +1364,7 @@ def _fit_optical_model(title, grating, bin_x, bin_y, lines, alphap,
                 # Unless we want an alphapfit
                 doalphapfit_thistime = True
                 paramlist.append(tuple(range(
-                    om.nparams,om.nparams+len(alphap)),))
+                    om.NPARAMS, om.NPARAMS + len(alphap)),))
 
         # Report on how many points are in the data set
         if (verbose):
@@ -1396,6 +1399,7 @@ def _fit_optical_model(title, grating, bin_x, bin_y, lines, alphap,
                 while (not fitdone):
                     fitcount += 1
                     # Actually do the fit
+                    model = om.fitfunc_astropy_model(grating)  # astropy custom_model instance
                     m = mpfit.mpfit(om.mpfitfunc, functkw=fa, parinfo=parinfo,
                                     iterfunct=None, ftol=FTOL)
                     # Report on it
@@ -1425,7 +1429,7 @@ def _fit_optical_model(title, grating, bin_x, bin_y, lines, alphap,
                         fitdone = True
 
                 if doplot:
-                    pl = numpy.asarray(m.params)[:om.nparams]
+                    pl = numpy.asarray(m.params)[:om.NPARAMS]
                     resid = om.errfunc(grating, pl, alphap, alls, ally, allx, allarcs)
                     om.plotResid(title,allx,ally,allarcs,resid)
                     #om.plotFunc(title,allx,ally,allarcs,om.fitfunc(grating, pl,alphap,alls,ally,allx))
@@ -1434,10 +1438,10 @@ def _fit_optical_model(title, grating, bin_x, bin_y, lines, alphap,
         pl = numpy.asarray(m.params)
         if (verbose):
             print 'Fit complete'
-            om.printParams(grating, pl[:om.nparams], pl[om.nparams:])
+            om.printParams(grating, pl[:om.NPARAMS], pl[om.NPARAMS:])
 
         # Generate the final residuals
-        resid = om.errfunc(grating, pl[:om.nparams],pl[om.nparams:],alls,ally,allx,allarcs)
+        resid = om.errfunc(grating, pl[:om.NPARAMS], pl[om.NPARAMS:], alls, ally, allx, allarcs)
 
         # Calculate how good the fit was
         var = numpy.sum(resid**2) / len(allx)
@@ -1457,7 +1461,7 @@ def _fit_optical_model(title, grating, bin_x, bin_y, lines, alphap,
             lines = origLines
             decimate = False
             alls, ally, allx, allarcs = om.extractArrays(lines, grating, bin_x, bin_y)
-            resid = om.errfunc(grating, pl[:om.nparams],pl[om.nparams:],alls,ally,allx,allarcs)
+            resid = om.errfunc(grating, pl[:om.NPARAMS], pl[om.NPARAMS:], alls, ally, allx, allarcs)
             if (doplot):
                 om.plotResid(title,allx,ally,allarcs,resid)
 
@@ -1669,7 +1673,7 @@ def derive_wifes_optical_wave_solution(inimg,
 
     if not (params is None):
         # Dump some output
-        newlines = numpy.column_stack((alls,ally,allx,allarcs,om.fitfunc(grating, params[:om.nparams],params[om.nparams:],alls,ally,allx)))
+        newlines = numpy.column_stack((alls,ally,allx,allarcs,om.fitfunc(grating, params[:om.NPARAMS], params[om.NPARAMS:], alls, ally, allx)))
         om.saveData(outfn+"_extra.pkl", grating, params, newlines, (dateobs, tdk, pmb, rh, rma))
 
         # And the resampling data
