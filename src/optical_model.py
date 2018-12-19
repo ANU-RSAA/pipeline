@@ -18,7 +18,7 @@ import multiprocessing
 import pickle
 
 # The number of fitted parameters
-nparams = 18
+NPARAMS = 18
 
 # The coefficients to the Sellmeier equation for BSL7Y glass
 A1 = 1.13329383
@@ -29,7 +29,7 @@ B2 = 2.37391760e-2
 B3 = 7.07030316e1
 
 # The refractive index of air
-nAir = 1.000293
+nAIR = 1.000293
 
 def saveData(fname, grating, params, lines, meta):
   """ Save the grating, parameters, and lines of data in pickle file"""
@@ -65,7 +65,7 @@ def saveResamplingData(fname, yrange, grating, bin_x, bin_y, pl):
       # a shift along the y-indices (mismatch between the python [0,1,...] and
       # FITS [1,2,3, ....] way of referencing array elements ?)
       #xout[y-y0,:] = fitfunc(grating, pl[:nparams], pl[nparams:], (s+1)*np.ones_like(xrnge), y*bin_y*np.ones_like(xrnge), xrnge)
-      xout[y-y0,:] = fitfunc(grating, pl[:nparams], pl[nparams:], (s+1)*np.ones_like(xrnge), (y+1)*bin_y*np.ones_like(xrnge), xrnge)
+      xout[y-y0,:] = fitfunc(grating, pl[:NPARAMS], pl[NPARAMS:], (s + 1) * np.ones_like(xrnge), (y + 1) * bin_y * np.ones_like(xrnge), xrnge)
 
 
     xhdu = pf.ImageHDU(header=None, data=xout)
@@ -79,10 +79,10 @@ def saveResamplingData(fname, yrange, grating, bin_x, bin_y, pl):
 # new function from Mike to evaluate optical model
 def evaluate_optical_model(x, y, s, grating, bin_x, bin_y, params):
   return fitfunc(grating,
-                 params[:nparams],
-                 params[nparams:],
+                 params[:NPARAMS],
+                 params[NPARAMS:],
                  s,
-                 y*bin_y,
+                 y * bin_y,
                  x)
 
 #------------------------------------------------------------------------
@@ -166,7 +166,7 @@ def mpfitfunc(p, fjac=None, s=None, y=None, x=None, grating=None, arc=None, err=
   # If fjac==None then partial derivatives should not
   # computed.  It will always be None if MPFIT is called with default
   # flag.
-  model = fitfunc(grating, p[:nparams], p[nparams:], s, y, x)
+  model = fitfunc(grating, p[:NPARAMS], p[NPARAMS:], s, y, x)
   # Non-negative status value means MPFIT should continue, negative means
   # stop the
   status = 0
@@ -220,7 +220,7 @@ def defaultParams(grating):
     #lambda0 = 4300
 
   # Set up the initial set of parameters
-  plorig = np.zeros((nparams))
+  plorig = np.zeros((NPARAMS))
 
   # Lines per mm
   plorig[0] = d0
@@ -275,7 +275,7 @@ def defaultParams(grating):
 
 def printParams(grating,p,alphap):
   # Extract parameters (and ignore any extras we might be given)
-  (d0, input_alpha, phi, xoc, yoc, r1, r2, r3, fcamera, theta_x, theta_y, xdc, ydc, lambda0, Afront, Aback, rx, ry) = p[:nparams]
+  (d0, input_alpha, phi, xoc, yoc, r1, r2, r3, fcamera, theta_x, theta_y, xdc, ydc, lambda0, Afront, Aback, rx, ry) = p[:NPARAMS]
   print 'd0=',d0
   print 'input_alpha=',input_alpha,'(',math.degrees(input_alpha),' degrees)'
   print 'phi=',phi,'(',math.degrees(phi),' degrees)'
@@ -326,6 +326,13 @@ def snell(n1, n2, norm, light):
 
   return a + (nratio*costheta1 - np.sqrt(1 - sintheta12))[:,np.newaxis] * norm
 
+def fitfunc_astropy(x, y, s, ):
+  """
+  Function for fitting optical model using astropy
+  :return:
+  """
+
+
 # The function that produces lambda given the list of parameters in p and alphap, the list of
 # slitlets in s, and the y and x values of each data point.
 def fitfunc(grating,p,alphap,s,y,x):
@@ -339,7 +346,7 @@ def fitfunc(grating,p,alphap,s,y,x):
     x = 4096-x
 
   # Extract parameters (and ignore any extras we might be given)
-  (d0, input_alpha, phi, xoc, yoc, r1, r2, r3, fcamera, theta_x, theta_y, xdc, ydc, lambda0, Afront, Aback, rx, ry) = p[:nparams]
+  (d0, input_alpha, phi, xoc, yoc, r1, r2, r3, fcamera, theta_x, theta_y, xdc, ydc, lambda0, Afront, Aback, rx, ry) = p[:NPARAMS]
 
   # Calculate these now for later use
   sinphi = math.sin(phi/2)
@@ -429,7 +436,7 @@ def fitfunc(grating,p,alphap,s,y,x):
 
     # Light exiting the front prism onto the grating
     # for the central wavelength of the central slitlet
-    grating_in_light0 = snell(nAir, n0, norm_front, prism_in_light0)
+    grating_in_light0 = snell(nAIR, n0, norm_front, prism_in_light0)
 
     # The angle of incidence on the grating
     grating_in_alpha0 = math.atan(grating_in_light0[0] / grating_in_light0[2])
@@ -444,7 +451,7 @@ def fitfunc(grating,p,alphap,s,y,x):
     grating_out_light0 /= np.linalg.norm(grating_out_light0)
 
     # Now calculate the unit vector in the direction of the light exiting the back prism.
-    prism_out_light0 = snell(n0, nAir, norm_back, grating_out_light0)
+    prism_out_light0 = snell(n0, nAIR, norm_back, grating_out_light0)
 
     # The angle of diffraction as it exits the back prism.
     prism_out_beta0 = math.atan(prism_out_light0[0] / prism_out_light0[2])
@@ -509,7 +516,7 @@ def fitfunc(grating,p,alphap,s,y,x):
     # you get in the middle of using mpfit.  We avoid NaNs by just pretending the problem
     # doesn't exist and putting a default value in for n.
     badargs = (n12 <= 0)
-    n12[badargs] = nAir**2
+    n12[badargs] = nAIR ** 2
     n1 = np.sqrt(n12)
 
     # The angles of incidence for all the other slitlets
@@ -521,7 +528,7 @@ def fitfunc(grating,p,alphap,s,y,x):
     prism_in_light = norm_vector(prism_in_light)
 
     # Light exiting the front prism onto the grating for all slitlets
-    grating_in_light = snell(nAir, n1, norm_front, prism_in_light)
+    grating_in_light = snell(nAIR, n1, norm_front, prism_in_light)
 
     # The angle of incidence on the grating
     cx = np.sqrt(grating_in_light[:,0]**2 + grating_in_light[:,2]**2)
@@ -535,7 +542,7 @@ def fitfunc(grating,p,alphap,s,y,x):
     # Now that we have vectors for all the light exiting the back prism, we can work
     # backwards to find out where this light exited the grating.
     # This gives us the angle of diffraction from the grating.
-    grating_out_light = -snell(nAir, n1, -norm_back, -prism_out_light)
+    grating_out_light = -snell(nAIR, n1, -norm_back, -prism_out_light)
     cx = np.sqrt(grating_out_light[:,0]**2 + grating_out_light[:,2]**2)
     sinbeta = -grating_out_light[:,0] / cx
     cosbeta = grating_out_light[:,2] / cx
@@ -574,17 +581,17 @@ def fitfunc(grating,p,alphap,s,y,x):
       # you get in the middle of using mpfit.  We avoid NaNs by just pretending the problem
       # doesn't exist and putting a default value in for n.
       badargs = (n2 <= 0)
-      n2[badargs] = nAir**2
+      n2[badargs] = nAIR ** 2
       n = np.sqrt(n2)
 
       # Unit vectors in the direction of light entering the grating
-      grating_in_light = snell(nAir, n, norm_front, prism_in_light)
+      grating_in_light = snell(nAIR, n, norm_front, prism_in_light)
       cx = np.sqrt(grating_in_light[:,0]**2 + grating_in_light[:,2]**2)
       sinalpha = grating_in_light[:,0] / cx
       cosalpha = grating_in_light[:,2] / cx
 
       # The angle at which light exits the grating (calculated backwards from where it exits the back prism)
-      grating_out_light = -snell(nAir, n, -norm_back, -prism_out_light)
+      grating_out_light = -snell(nAIR, n, -norm_back, -prism_out_light)
 
       # Our best estimate at the angle of diffraction
       cx = np.sqrt(grating_out_light[:,0]**2 + grating_out_light[:,2]**2)
